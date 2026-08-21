@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NER Corpus Ingest</title>
+<style>
+  :root{
+    --bg:#F6F5F1; --card:#FFFFFF; --border:#E3E1D9; --border-strong:#C9C6BA;
+    --text:#20201C; --text-2:#6B6A62; --accent:#0F6E56; --accent-light:#E1F5EE;
+    --danger:#993C1D; --danger-light:#FAECE7;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.6;
+  }
+  .wrap{max-width:720px; margin:0 auto; padding:48px 20px 80px;}
+  h1{font-size:22px; font-weight:500; margin:0 0 4px;}
+  .sub{color:var(--text-2); font-size:14px; margin:0 0 32px;}
+
+  .tabs{display:flex; gap:4px; margin-bottom:20px;}
+  .tab{
+    flex:1; text-align:center; padding:10px; border:0.5px solid var(--border);
+    border-radius:8px; cursor:pointer; font-size:14px; background:var(--card); color:var(--text-2);
+  }
+  .tab.active{border-color:var(--accent); color:var(--accent); background:var(--accent-light); font-weight:500;}
+
+  .card{
+    background:var(--card); border:0.5px solid var(--border); border-radius:12px;
+    padding:24px; margin-bottom:20px;
+  }
+
+  textarea{
+    width:100%; min-height:140px; border:0.5px solid var(--border); border-radius:8px;
+    padding:12px; font-size:14px; font-family:inherit; resize:vertical; background:#FCFCFA;
+  }
+  textarea:focus{outline:none; border-color:var(--accent);}
+
+  .dropzone{
+    border:1.5px dashed var(--border-strong); border-radius:8px; padding:32px 16px;
+    text-align:center; color:var(--text-2); font-size:14px; cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .dropzone.drag{border-color:var(--accent); background:var(--accent-light);}
+  .dropzone input{display:none;}
+  .filename{margin-top:10px; font-size:13px; color:var(--text); font-weight:500;}
+
+  button.primary{
+    width:100%; padding:12px; border-radius:8px; border:none;
+    background:var(--accent); color:#fff; font-size:15px; font-weight:500; cursor:pointer;
+    margin-top:16px;
+  }
+  button.primary:disabled{background:var(--border-strong); cursor:not-allowed;}
+  button.secondary{
+    padding:8px 14px; border-radius:8px; border:0.5px solid var(--border-strong);
+    background:#fff; color:var(--text); font-size:13px; cursor:pointer;
+  }
+
+  .status{font-size:13px; color:var(--text-2); margin-top:12px; text-align:center;}
+  .status.error{color:var(--danger);}
+
+  .pending-item{
+    border:0.5px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:12px;
+  }
+  .pending-item .row{display:flex; justify-content:space-between; align-items:baseline; gap:8px;}
+  .pending-item .th{font-size:15px; font-weight:500;}
+  .badge{
+    font-size:11px; padding:3px 8px; border-radius:6px; background:var(--accent-light);
+    color:var(--accent); font-weight:500; white-space:nowrap;
+  }
+  .ctx{font-size:13px; color:var(--text-2); margin:6px 0 10px;}
+  .actions{display:flex; gap:8px;}
+  .actions button{flex:1; padding:8px; border-radius:6px; border:0.5px solid var(--border-strong);
+    background:#fff; font-size:13px; cursor:pointer;}
+  .actions button.confirm{border-color:var(--accent); color:var(--accent);}
+  .actions button.skip{border-color:var(--danger); color:var(--danger);}
+  .actions button.chosen{background:var(--accent-light);}
+
+  table.result{width:100%; border-collapse:collapse; font-size:13px;}
+  table.result th, table.result td{text-align:left; padding:8px 6px; border-bottom:0.5px solid var(--border);}
+  table.result th{color:var(--text-2); font-weight:500;}
+
+  .hidden{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>NER corpus ingest</h1>
+  <p class="sub">ส่งข้อความหรือเอกสารเข้าไปสกัด entity แล้วยืนยันเข้า corpus</p>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="text">พิมพ์ข้อความ</div>
+    <div class="tab" data-tab="file">อัปโหลดไฟล์</div>
+  </div>
+
+  <div class="card" id="panel-text">
+    <textarea id="rawText" placeholder="วางหรือพิมพ์ข้อความภาษาไทย/จีนที่นี่..."></textarea>
+  </div>
+
+  <div class="card hidden" id="panel-file">
+    <div class="dropzone" id="dropzone">
+      <div>ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์</div>
+      <div style="font-size:12px; margin-top:4px;">.txt · .pdf · .docx</div>
+      <div class="filename" id="filename"></div>
+      <input type="file" id="fileInput" accept=".txt,.pdf,.docx">
+    </div>
+  </div>
+
+  <button class="primary" id="submitBtn">เริ่มสกัด entity</button>
+  <div class="status" id="status"></div>
+
+  <div id="pendingSection" class="hidden">
+    <h1 style="margin-top:40px;">ยืนยัน entity ใหม่</h1>
+    <p class="sub">entity ที่ยังไม่มีใน corpus — ตรวจสอบก่อนบันทึก</p>
+    <div id="pendingList"></div>
+    <button class="primary" id="confirmSubmitBtn">ส่งผลการยืนยัน</button>
+  </div>
+
+  <div id="resultSection" class="hidden">
+    <h1 style="margin-top:40px;">ผลลัพธ์</h1>
+    <div class="card">
+      <table class="result" id="resultTable"></table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API_BASE = "http://localhost:8000"; // เปลี่ยนเป็น URL จริงตอน deploy
+
+let currentFile = null;
+let currentJobId = null;
+let currentPending = [];
+const decisions = {}; // candidate_id -> {choice, edited_th, edited_type}
+
+// --- tab switching ---
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    const isText = tab.dataset.tab === "text";
+    document.getElementById("panel-text").classList.toggle("hidden", !isText);
+    document.getElementById("panel-file").classList.toggle("hidden", isText);
+  });
+});
+
+// --- dropzone ---
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("drag"); });
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
+dropzone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropzone.classList.remove("drag");
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
+
+function setFile(file) {
+  currentFile = file;
+  document.getElementById("filename").textContent = file.name;
+}
+
+// --- submit ingest ---
+document.getElementById("submitBtn").addEventListener("click", async () => {
+  const isTextMode = document.querySelector(".tab.active").dataset.tab === "text";
+  const statusEl = document.getElementById("status");
+  const formData = new FormData();
+
+  if (isTextMode) {
+    const text = document.getElementById("rawText").value.trim();
+    if (!text) { setStatus("กรุณาพิมพ์ข้อความก่อน", true); return; }
+    formData.append("raw_text", text);
+  } else {
+    if (!currentFile) { setStatus("กรุณาเลือกไฟล์ก่อน", true); return; }
+    formData.append("file", currentFile);
+  }
+
+  setStatus("กำลังส่งข้อมูล...");
+  document.getElementById("submitBtn").disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/ingest`, { method: "POST", body: formData });
+    if (!res.ok) throw new Error((await res.json()).detail || "ส่งข้อมูลไม่สำเร็จ");
+    const data = await res.json();
+    currentJobId = data.job_id;
+    setStatus("กำลังประมวลผล...");
+    pollJob();
+  } catch (err) {
+    setStatus(err.message, true);
+    document.getElementById("submitBtn").disabled = false;
+  }
+});
+
+// --- poll job status ---
+async function pollJob() {
+  try {
+    const res = await fetch(`${API_BASE}/jobs/${currentJobId}`);
+    const data = await res.json();
+
+    if (data.status === "running") {
+      setTimeout(pollJob, 1500);
+    } else if (data.status === "pending_confirmation") {
+      setStatus("มี entity ใหม่รอการยืนยัน");
+      loadPending();
+    } else if (data.status === "error") {
+      setStatus(`เกิดข้อผิดพลาด: ${data.error}`, true);
+      document.getElementById("submitBtn").disabled = false;
+    } else if (data.status === "done") {
+      loadResult();
+    }
+  } catch (err) {
+    setStatus("เชื่อมต่อ API ไม่ได้", true);
+  }
+}
+
+// --- pending confirmation ---
+async function loadPending() {
+  const res = await fetch(`${API_BASE}/jobs/${currentJobId}/pending`);
+  currentPending = await res.json();
+
+  const section = document.getElementById("pendingSection");
+  const list = document.getElementById("pendingList");
+  list.innerHTML = "";
+
+  if (currentPending.length === 0) {
+    // ไม่มี entity ใหม่ต้องยืนยัน -> ข้ามไป confirm ทันที (ส่ง decisions ว่าง)
+    submitConfirm();
+    return;
+  }
+
+  currentPending.forEach(c => {
+    decisions[c.candidate_id] = { choice: "confirm" };
+    const item = document.createElement("div");
+    item.className = "pending-item";
+    item.innerHTML = `
+      <div class="row">
+        <span class="th">${escapeHtml(c.th)}</span>
+        <span class="badge">${escapeHtml(c.entity_type)}</span>
+      </div>
+      <div class="ctx">${escapeHtml(c.context_sentence)}</div>
+      <div class="actions">
+        <button class="confirm chosen" data-id="${c.candidate_id}" data-choice="confirm">ยืนยัน</button>
+        <button data-id="${c.candidate_id}" data-choice="edit">แก้ไข</button>
+        <button class="skip" data-id="${c.candidate_id}" data-choice="skip">ข้าม</button>
+      </div>
+    `;
+    list.appendChild(item);
+  });
+
+  list.querySelectorAll("button[data-choice]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const choice = btn.dataset.choice;
+
+      if (choice === "edit") {
+        const newTh = prompt("แก้ไขชื่อ (ภาษาไทย):", decisions[id].edited_th || "");
+        if (newTh === null) return;
+        const newType = prompt("แก้ไขประเภท entity:", decisions[id].edited_type || "");
+        decisions[id] = { choice: "edit", edited_th: newTh, edited_type: newType || undefined };
+      } else {
+        decisions[id] = { choice };
+      }
+
+      // อัปเดต UI ให้เห็นว่าเลือกอะไรอยู่
+      const group = btn.parentElement.querySelectorAll("button");
+      group.forEach(b => b.classList.remove("chosen"));
+      btn.classList.add("chosen");
+    });
+  });
+
+  section.classList.remove("hidden");
+}
+
+document.getElementById("confirmSubmitBtn").addEventListener("click", submitConfirm);
+
+async function submitConfirm() {
+  setStatus("กำลังบันทึกผลการยืนยัน...");
+  const payload = {
+    decisions: Object.entries(decisions).map(([candidate_id, d]) => ({ candidate_id, ...d })),
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/jobs/${currentJobId}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "ยืนยันไม่สำเร็จ");
+    document.getElementById("pendingSection").classList.add("hidden");
+    setStatus("กำลังบันทึกลง corpus...");
+    pollJob();
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+// --- final result ---
+async function loadResult() {
+  const res = await fetch(`${API_BASE}/jobs/${currentJobId}/result`);
+  const data = await res.json();
+
+  setStatus("เสร็จสิ้น");
+  document.getElementById("submitBtn").disabled = false;
+
+  const table = document.getElementById("resultTable");
+  table.innerHTML = `
+    <tr><th>ภาษาไทย</th><th>ประเภท</th><th>สถานะ</th><th>บริบท</th></tr>
+    ${data.map(r => `
+      <tr>
+        <td>${escapeHtml(r.th)}</td>
+        <td>${escapeHtml(r.entity_type)}</td>
+        <td>${escapeHtml(r.status || "")}</td>
+        <td>${escapeHtml(r.context_sentence)}</td>
+      </tr>
+    `).join("")}
+  `;
+  document.getElementById("resultSection").classList.remove("hidden");
+}
+
+function setStatus(msg, isError = false) {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.classList.toggle("error", isError);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
